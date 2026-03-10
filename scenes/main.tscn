@@ -1,0 +1,150 @@
+[gd_scene format=3 uid="uid://cmainphase3"]
+
+[ext_resource type="Script" uid="uid://mainphase3script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="PackedScene" uid="uid://playerphase3scene" path="res://scenes/player.tscn" id="2_player"]
+[ext_resource type="Script" uid="uid://worldphase3script" path="res://scripts/world_view.gd" id="3_world"]
+[ext_resource type="Script" path="res://scripts/build_panel.gd" id="4_buildui"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_small"]
+font_size = 18
+outline_size = 4
+
+[sub_resource type="LabelSettings" id="LabelSettings_debug"]
+font_size = 16
+outline_size = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0.08, 0.09, 0.12, 0.92)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.85, 0.82, 0.62, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+content_margin_left = 18.0
+content_margin_top = 18.0
+content_margin_right = 18.0
+content_margin_bottom = 18.0
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+
+[node name="World" type="Node2D" parent="."]
+script = ExtResource("3_world")
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+
+[node name="Camera2D" type="Camera2D" parent="."]
+position_smoothing_enabled = false
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="HUD" type="Label" parent="CanvasLayer"]
+offset_left = 12.0
+offset_top = 10.0
+offset_right = 900.0
+offset_bottom = 42.0
+label_settings = SubResource("LabelSettings_small")
+
+[node name="DebugHUD" type="Label" parent="CanvasLayer"]
+visible = false
+offset_left = 12.0
+offset_top = 48.0
+offset_right = 520.0
+offset_bottom = 150.0
+label_settings = SubResource("LabelSettings_debug")
+
+[node name="HelpHUD" type="Label" parent="CanvasLayer"]
+visible = false
+offset_left = 12.0
+offset_top = 680.0
+offset_right = 720.0
+offset_bottom = 830.0
+label_settings = SubResource("LabelSettings_debug")
+
+
+[node name="ControllerDebugHUD" type="Label" parent="CanvasLayer"]
+visible = false
+offset_left = 12.0
+offset_top = 88.0
+offset_right = 560.0
+offset_bottom = 388.0
+label_settings = SubResource("LabelSettings_debug")
+text = "Controller Debug"
+
+[node name="PauseBackdrop" type="ColorRect" parent="CanvasLayer"]
+visible = false
+offset_right = 1600.0
+offset_bottom = 1000.0
+color = Color(0, 0, 0, 0.56)
+
+[node name="PausePanel" type="Panel" parent="CanvasLayer"]
+visible = false
+offset_left = 520.0
+offset_top = 160.0
+offset_right = 1080.0
+offset_bottom = 580.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="PauseTitle" type="Label" parent="CanvasLayer/PausePanel"]
+offset_left = 18.0
+offset_top = 16.0
+offset_right = 260.0
+offset_bottom = 52.0
+label_settings = SubResource("LabelSettings_small")
+text = "Paused"
+
+[node name="PauseItems" type="Label" parent="CanvasLayer/PausePanel"]
+offset_left = 18.0
+offset_top = 72.0
+offset_right = 520.0
+offset_bottom = 360.0
+label_settings = SubResource("LabelSettings_small")
+text = "> Resume\n  Options\n  Dev Tools\n  Quit"
+
+[node name="PauseHint" type="Label" parent="CanvasLayer/PausePanel"]
+offset_left = 18.0
+offset_top = 430.0
+offset_right = 540.0
+offset_bottom = 492.0
+label_settings = SubResource("LabelSettings_debug")
+text = "Esc/Start pause   W/S or D-pad move   Enter/A select   Esc/B back"
+
+[node name="BuildPanel" type="Panel" parent="CanvasLayer"]
+visible = false
+offset_left = 20.0
+offset_top = 580.0
+offset_right = 520.0
+offset_bottom = 830.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+script = ExtResource("4_buildui")
+
+[node name="BuildTitle" type="Label" parent="CanvasLayer/BuildPanel"]
+visible = false
+offset_left = 18.0
+offset_top = 16.0
+offset_right = 420.0
+offset_bottom = 42.0
+label_settings = SubResource("LabelSettings_small")
+text = "Build Mode"
+
+[node name="BuildItems" type="Label" parent="CanvasLayer/BuildPanel"]
+visible = false
+offset_left = 18.0
+offset_top = 52.0
+offset_right = 460.0
+offset_bottom = 170.0
+label_settings = SubResource("LabelSettings_debug")
+text = "> Ground"
+
+[node name="BuildHint" type="Label" parent="CanvasLayer/BuildPanel"]
+visible = false
+offset_left = 18.0
+offset_top = 188.0
+offset_right = 470.0
+offset_bottom = 234.0
+label_settings = SubResource("LabelSettings_debug")
+text = "Build controls"

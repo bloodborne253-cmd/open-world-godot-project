@@ -1,0 +1,955 @@
+extends Node2D
+
+const TILE_SIZE := 32
+const PLAYER_COLLISION_SIZE := Vector2(18, 14)
+const ACTIVE_CHUNK_RADIUS := 1
+const KEEP_CHUNK_RADIUS := 2
+const VISIBLE_CHUNK_MARGIN := 1
+const MAX_MOVE_STEP := 8.0
+const BUILD_CURSOR_SPEED := 560.0
+const BUILD_PAINT_INTERVAL := 0.06
+const CAMERA_BUILD_MAX_OFFSET := Vector2(320.0, 180.0)
+
+const PAUSE_MENUS := {
+	"main": ["Resume", "Options", "Dev Tools", "Quit"],
+	"options": ["Toggle Help Overlay", "Toggle Debug Overlay", "Toggle Controller Debug", "Back"],
+	"dev": ["Teleport to Origin", "Recenter Safe Spawn", "Regenerate Nearby Chunks", "Back"],
+}
+
+const BUILD_SECTIONS := [
+	{"name": "Floor", "layer": "ground", "subtabs": [
+		{"name": "Basic", "items": [0, 6, 2]},
+		{"name": "Liquid", "items": [16, 17]},
+	]},
+	{"name": "Walls", "layer": "object", "subtabs": [
+		{"name": "Blocks", "items": [1, 4, 12]},
+	]},
+	{"name": "Objects", "layer": "object", "subtabs": [
+		{"name": "Nature", "items": [3]},
+		{"name": "Props", "items": [5, 10]},
+	]},
+	{"name": "Special", "layer": "ground", "subtabs": [
+		{"name": "Hazards", "items": [18]},
+	]},
+]
+
+const TILE_LABELS := {
+	0: "Grass",
+	1: "Wall",
+	2: "Sand",
+	3: "Bush",
+	4: "Rock",
+	5: "Pot",
+	6: "Dirt",
+	10: "Chest",
+	12: "Push Block",
+	16: "Water",
+	17: "Deep Water",
+	18: "Hole",
+}
+
+@onready var world: WorldView = $World
+@onready var player: Player = $Player
+@onready var camera: Camera2D = $Camera2D
+@onready var hud: Label = $CanvasLayer/HUD
+@onready var debug_label: Label = $CanvasLayer/DebugHUD
+@onready var help_label: Label = $CanvasLayer/HelpHUD
+@onready var controller_debug_label: Label = $CanvasLayer/ControllerDebugHUD
+@onready var pause_backdrop: ColorRect = $CanvasLayer/PauseBackdrop
+@onready var pause_panel: Panel = $CanvasLayer/PausePanel
+@onready var pause_title: Label = $CanvasLayer/PausePanel/PauseTitle
+@onready var pause_items: Label = $CanvasLayer/PausePanel/PauseItems
+@onready var pause_hint: Label = $CanvasLayer/PausePanel/PauseHint
+@onready var build_panel: BuildPanelUI = $CanvasLayer/BuildPanel
+@onready var build_title: Label = $CanvasLayer/BuildPanel/BuildTitle
+@onready var build_items: Label = $CanvasLayer/BuildPanel/BuildItems
+@onready var build_hint: Label = $CanvasLayer/BuildPanel/BuildHint
+
+var chunk_manager: ChunkManager = ChunkManager.new()
+var player_world_pos: Vector2 = Vector2.ZERO
+var current_chunk: Vector2i = Vector2i.ZERO
+var chunk_entry_points: Dictionary = {}
+var is_falling_in_hole: bool = false
+var status_text: String = ""
+var status_t: float = 0.0
+var visible_chunk_coords_cache: Array[Vector2i] = []
+var show_help: bool = false
+var show_debug: bool = false
+var show_controller_debug: bool = false
+var paused: bool = false
+var pause_menu: String = "main"
+var pause_index: int = 0
+var build_mode: bool = false
+var palette_open: bool = false
+var build_page_index: int = 0
+var build_item_index: int = 0
+var build_subtab_index: int = 0
+var build_brush_size: int = 1
+var build_cursor_world: Vector2 = Vector2.ZERO
+var grid_near_cursor_only: bool = false
+var _build_paint_t: float = 0.0
+var _dpad_nudge_t: float = 0.0
+var _last_viewport_size: Vector2 = Vector2.ZERO
+var _joy_debug_lines: Array[String] = []
+
+func _ready() -> void:
+	_ensure_input_actions()
+	world.main_ref = self
+	build_panel.main_ref = self
+	player_world_pos = _find_safe_spawn(Vector2(20 * TILE_SIZE, 13 * TILE_SIZE))
+	build_cursor_world = _snap_world_to_tile_center(player_world_pos)
+	player.position = player_world_pos
+	current_chunk = chunk_manager.world_to_chunk_coord(player_world_pos)
+	chunk_entry_points[chunk_manager.chunk_key(current_chunk)] = player_world_pos
+	camera.enabled = true
+	camera.make_current()
+	camera.position = player_world_pos
+	_refresh_chunks(true)
+	_layout_pause_ui()
+	_layout_build_ui()
+	_update_pause_menu()
+	_update_build_palette_text()
+	_apply_overlay_visibility()
+	_update_controller_debug_text()
+	show_status("Phase 4 foundation+")
+
+func _input(event: InputEvent) -> void:
+	_track_controller_debug_event(event)
+	if event.is_action_pressed("build_toggle"):
+		_toggle_build_mode()
+		get_viewport().set_input_as_handled()
+		return
+
+	if build_mode:
+		if event.is_action_pressed("build_smaller"):
+			_change_build_page(-1)
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("build_larger"):
+			_change_build_page(1)
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("build_cycle_brush"):
+			_change_brush_size(1)
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("build_palette"):
+			_toggle_build_palette()
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("toggle_grid_focus"):
+			grid_near_cursor_only = not grid_near_cursor_only
+			world.queue_redraw()
+			show_status("Grid: %s" % ("Near cursor" if grid_near_cursor_only else "Full view"))
+			get_viewport().set_input_as_handled()
+			return
+		if palette_open:
+			if event.is_action_pressed("move_left"):
+				_move_build_selection(-1, 0)
+			elif event.is_action_pressed("move_right"):
+				_move_build_selection(1, 0)
+			elif event.is_action_pressed("move_up"):
+				_move_build_selection(0, -1)
+			elif event.is_action_pressed("move_down"):
+				_move_build_selection(0, 1)
+			elif event.is_action_pressed("build_prev"):
+				_change_build_subtab(-1)
+			elif event.is_action_pressed("build_next"):
+				_change_build_subtab(1)
+			elif event.is_action_pressed("build_smaller"):
+				_change_build_page(-1)
+			elif event.is_action_pressed("build_larger"):
+				_change_build_page(1)
+			get_viewport().set_input_as_handled()
+			return
+
+	if event.is_action_pressed("pause") and not build_mode:
+		_toggle_pause()
+		get_viewport().set_input_as_handled()
+		return
+
+	if paused:
+		if event.is_action_pressed("menu_up"):
+			_move_pause_selection(-1)
+		elif event.is_action_pressed("menu_down"):
+			_move_pause_selection(1)
+		elif event.is_action_pressed("menu_accept"):
+			_activate_pause_item()
+		elif event.is_action_pressed("menu_back"):
+			_pause_back()
+		get_viewport().set_input_as_handled()
+		return
+
+	if event.is_action_pressed("toggle_help"):
+		show_help = not show_help
+		_apply_overlay_visibility()
+		show_status("Help overlay: %s" % ("ON" if show_help else "OFF"))
+	elif event.is_action_pressed("toggle_debug"):
+		show_debug = not show_debug
+		_apply_overlay_visibility()
+		show_status("Debug overlay: %s" % ("ON" if show_debug else "OFF"))
+
+func _physics_process(delta: float) -> void:
+	var view_size: Vector2 = get_viewport_rect().size
+	if view_size != _last_viewport_size:
+		_last_viewport_size = view_size
+		_layout_pause_ui()
+		_layout_build_ui()
+
+	if status_t > 0.0:
+		status_t = max(status_t - delta, 0.0)
+		if status_t == 0.0:
+			status_text = ""
+
+	if paused:
+		_update_hud()
+		return
+	if build_mode:
+		_update_build_mode(delta)
+		_refresh_chunks(false)
+		_update_hud()
+		return
+
+	var velocity: Vector2 = player.movement_velocity()
+	if chunk_manager.is_slow_tile(chunk_manager.get_tile_at_world(player_world_pos)):
+		velocity *= 0.55
+	_move_player_axis(Vector2(velocity.x * delta, 0.0))
+	_move_player_axis(Vector2(0.0, velocity.y * delta))
+	player.position = player_world_pos
+	camera.position = player_world_pos
+	_handle_actions()
+	_refresh_chunks(false)
+	_handle_hole_fall()
+	_update_hud()
+
+func _handle_actions() -> void:
+	if Input.is_action_just_pressed("attack"):
+		player.try_start_attack()
+	if Input.is_action_just_pressed("roll"):
+		player.try_start_roll(player.get_input_vector())
+	if player.attack_t > 0.0 and not player.attack_applied:
+		if chunk_manager.sword_hit_world(player.sword_rect()):
+			show_status("Bush/pot cut")
+			world.queue_redraw()
+		player.attack_applied = true
+	if Input.is_action_just_pressed("interact"):
+		var facing_dir: Vector2 = _player_facing_vector()
+		var front_tile: Vector2 = _snap_world_to_tile_center(player_world_pos + facing_dir * TILE_SIZE)
+		if chunk_manager.try_open_chest(player_world_pos):
+			show_status("Chest opened")
+			world.queue_redraw()
+		elif chunk_manager.try_push_block_at_world(front_tile, facing_dir):
+			show_status("Pushed block")
+			world.queue_redraw()
+
+func _update_build_mode(delta: float) -> void:
+	player.attack_t = 0.0
+	player.roll_t = 0.0
+	player.attack_applied = false
+	_build_paint_t = max(_build_paint_t - delta, 0.0)
+	_dpad_nudge_t = max(_dpad_nudge_t - delta, 0.0)
+	var redraw_world: bool = false
+	var stick: Vector2 = Input.get_vector("move_left", "move_right", "move_up", "move_down")
+	if not palette_open and stick.length() > 0.12:
+		var next_cursor: Vector2 = _snap_world_to_tile_center(build_cursor_world + stick.normalized() * BUILD_CURSOR_SPEED * delta)
+		if next_cursor != build_cursor_world:
+			build_cursor_world = next_cursor
+			redraw_world = true
+	if not palette_open:
+		if _handle_build_dpad_nudge():
+			redraw_world = true
+		_handle_build_palette_shortcuts()
+		if _handle_build_painting():
+			redraw_world = true
+	var next_camera: Vector2 = _build_camera_position()
+	if next_camera != camera.position:
+		camera.position = next_camera
+		redraw_world = true
+	if redraw_world:
+		world.queue_redraw()
+
+func _build_camera_position() -> Vector2:
+	var offset: Vector2 = build_cursor_world - player_world_pos
+	offset.x = clampf(offset.x, -CAMERA_BUILD_MAX_OFFSET.x, CAMERA_BUILD_MAX_OFFSET.x)
+	offset.y = clampf(offset.y, -CAMERA_BUILD_MAX_OFFSET.y, CAMERA_BUILD_MAX_OFFSET.y)
+	return player_world_pos + offset
+
+func _handle_build_dpad_nudge() -> bool:
+	if _dpad_nudge_t > 0.0:
+		return false
+	var moved: bool = false
+	if Input.is_action_pressed("move_left"):
+		build_cursor_world.x -= TILE_SIZE
+		moved = true
+	elif Input.is_action_pressed("move_right"):
+		build_cursor_world.x += TILE_SIZE
+		moved = true
+	elif Input.is_action_pressed("move_up"):
+		build_cursor_world.y -= TILE_SIZE
+		moved = true
+	elif Input.is_action_pressed("move_down"):
+		build_cursor_world.y += TILE_SIZE
+		moved = true
+	if moved:
+		build_cursor_world = _snap_world_to_tile_center(build_cursor_world)
+		_dpad_nudge_t = 0.14
+	return moved
+
+func _handle_build_palette_shortcuts() -> void:
+	if Input.is_action_just_pressed("build_prev"):
+		_change_build_item(-1)
+	elif Input.is_action_just_pressed("build_next"):
+		_change_build_item(1)
+
+func _handle_build_brush_shortcuts() -> void:
+	if Input.is_action_just_pressed("build_cycle_brush"):
+		_change_brush_size(1)
+
+func _handle_build_painting() -> bool:
+	var did_change: bool = false
+	if Input.is_action_pressed("build_place") and _build_paint_t <= 0.0:
+		did_change = _paint_build_brush(false)
+		_build_paint_t = BUILD_PAINT_INTERVAL
+	elif Input.is_action_pressed("build_erase") and _build_paint_t <= 0.0:
+		did_change = _paint_build_brush(true)
+		_build_paint_t = BUILD_PAINT_INTERVAL
+	if did_change:
+		_push_player_out_of_solids()
+		_refresh_chunks(true)
+	return did_change
+
+func _paint_build_brush(erasing: bool) -> bool:
+	var half_brush: int = int((build_brush_size - 1) / 2)
+	var changed: bool = false
+	var page_name: String = _get_current_page_name()
+	var paint_id: int = get_current_build_tile()
+	var status_name: String = get_current_build_tile_name()
+	var layer_name: String = _get_current_layer_name()
+	for by in range(-half_brush, half_brush + 1):
+		for bx in range(-half_brush, half_brush + 1):
+			var wp: Vector2 = build_cursor_world + Vector2(bx * TILE_SIZE, by * TILE_SIZE)
+			if layer_name == "ground":
+				var new_ground: int = int(chunk_manager.erase_default_for_page(page_name) if erasing else paint_id)
+				if not erasing and chunk_manager.is_hole_tile(new_ground):
+					if chunk_manager.get_object_at_world(wp) != chunk_manager.OBJECT_NONE:
+						chunk_manager.clear_object_at_world(wp)
+						changed = true
+				if chunk_manager.get_ground_at_world(wp) != new_ground:
+					chunk_manager.set_ground_at_world(wp, new_ground)
+					changed = true
+			else:
+				var new_obj: int = int(chunk_manager.erase_default_for_page(page_name) if erasing else paint_id)
+				if not erasing and not chunk_manager.can_place_object_at_world(wp):
+					continue
+				if chunk_manager.get_object_at_world(wp) != new_obj:
+					chunk_manager.set_object_at_world(wp, new_obj)
+					changed = true
+	if changed:
+		show_status(("Erased" if erasing else "Painted") + " " + status_name)
+	return changed
+
+func _push_player_out_of_solids() -> void:
+	if not chunk_manager.is_body_colliding(player_world_pos, PLAYER_COLLISION_SIZE):
+		return
+	player_world_pos = _find_safe_spawn(player_world_pos)
+	player.position = player_world_pos
+	if build_cursor_world.distance_to(player_world_pos) < 1.0:
+		build_cursor_world = _snap_world_to_tile_center(player_world_pos)
+
+func _snap_world_to_tile_center(world_pos: Vector2) -> Vector2:
+	var tx: int = floori(world_pos.x / float(TILE_SIZE))
+	var ty: int = floori(world_pos.y / float(TILE_SIZE))
+	return Vector2((tx + 0.5) * TILE_SIZE, (ty + 0.5) * TILE_SIZE)
+
+func _toggle_build_mode() -> void:
+	if paused:
+		paused = false
+	build_mode = not build_mode
+	palette_open = false
+	if build_mode:
+		build_cursor_world = _snap_world_to_tile_center(player_world_pos)
+		_sync_build_selection_to_current_pool()
+		show_status("Build mode ON")
+	else:
+		camera.position = player_world_pos
+		show_status("Build mode OFF")
+	_apply_overlay_visibility()
+	_layout_build_ui()
+	_update_build_palette_text()
+	if build_panel.visible:
+		build_panel.queue_redraw()
+	world.queue_redraw()
+
+func _toggle_build_palette() -> void:
+	var selected_tile_id: int = get_current_build_tile()
+	palette_open = not palette_open
+	_sync_build_selection_to_current_pool(selected_tile_id)
+	_apply_overlay_visibility()
+	_layout_build_ui()
+	_update_build_palette_text()
+	if build_panel.visible:
+		build_panel.queue_redraw()
+	world.queue_redraw()
+	show_status("Palette: %s" % ("OPEN" if palette_open else "CLOSED"))
+
+func _move_player_axis(delta_move: Vector2) -> void:
+	if delta_move == Vector2.ZERO:
+		return
+	var steps: int = maxi(1, int(ceil(delta_move.length() / MAX_MOVE_STEP)))
+	var step_move: Vector2 = delta_move / float(steps)
+	for i in range(steps):
+		var previous_pos: Vector2 = player_world_pos
+		var candidate: Vector2 = player_world_pos + step_move
+		if chunk_manager.is_body_colliding(candidate, PLAYER_COLLISION_SIZE):
+			return
+		player_world_pos = candidate
+		var previous_chunk: Vector2i = chunk_manager.world_to_chunk_coord(previous_pos)
+		var new_chunk: Vector2i = chunk_manager.world_to_chunk_coord(player_world_pos)
+		if new_chunk != previous_chunk:
+			chunk_entry_points[chunk_manager.chunk_key(new_chunk)] = player_world_pos
+
+
+func _handle_hole_fall() -> void:
+	if is_falling_in_hole:
+		return
+	if not chunk_manager.is_hole_tile(chunk_manager.get_ground_at_world(player_world_pos)):
+		return
+	is_falling_in_hole = true
+	var entry_key: String = chunk_manager.chunk_key(current_chunk)
+	var fallback: Vector2 = chunk_entry_points.get(entry_key, player_world_pos)
+	var respawn: Vector2 = _find_safe_spawn(fallback)
+	if chunk_manager.is_hole_tile(chunk_manager.get_ground_at_world(respawn)):
+		respawn = _find_safe_spawn(player_world_pos)
+	player_world_pos = respawn
+	player.position = player_world_pos
+	camera.position = player_world_pos
+	build_cursor_world = _snap_world_to_tile_center(player_world_pos)
+	_refresh_chunks(true)
+	show_status("Fell in hole")
+	is_falling_in_hole = false
+
+func _player_facing_vector() -> Vector2:
+	match player.facing:
+		"up":
+			return Vector2.UP
+		"down":
+			return Vector2.DOWN
+		"left":
+			return Vector2.LEFT
+		_:
+			return Vector2.RIGHT
+
+func _refresh_chunks(force_redraw: bool) -> void:
+	chunk_manager.ensure_chunks_around(player_world_pos, ACTIVE_CHUNK_RADIUS)
+	var trimmed: bool = chunk_manager.trim_chunks_around(player_world_pos, KEEP_CHUNK_RADIUS)
+	current_chunk = chunk_manager.world_to_chunk_coord(player_world_pos)
+	var view_size: Vector2 = get_viewport_rect().size
+	var view_rect: Rect2 = Rect2(camera.position - view_size * 0.5, view_size)
+	visible_chunk_coords_cache = chunk_manager.get_visible_chunk_coords(view_rect, VISIBLE_CHUNK_MARGIN)
+	for coord in visible_chunk_coords_cache:
+		chunk_manager.ensure_chunk(coord)
+	if force_redraw or trimmed:
+		world.queue_redraw()
+
+func get_visible_chunk_coords() -> Array[Vector2i]:
+	return visible_chunk_coords_cache
+
+func show_status(text: String) -> void:
+	status_text = text
+	status_t = 1.5
+
+func _apply_overlay_visibility() -> void:
+	help_label.visible = show_help
+	debug_label.visible = show_debug
+	controller_debug_label.visible = show_controller_debug
+	pause_backdrop.visible = paused
+	pause_panel.visible = paused
+	build_panel.visible = build_mode
+	build_title.visible = false
+	build_items.visible = false
+	build_hint.visible = false
+
+func _toggle_pause() -> void:
+	paused = not paused
+	if paused:
+		pause_menu = "main"
+		pause_index = 0
+		show_status("Paused")
+	else:
+		show_status("Resumed")
+	_apply_overlay_visibility()
+	_update_pause_menu()
+
+func _move_pause_selection(direction: int) -> void:
+	var items: Array = PAUSE_MENUS.get(pause_menu, []) as Array as Array
+	if items.is_empty():
+		return
+	pause_index = posmod(pause_index + direction, items.size())
+	_update_pause_menu()
+
+func _pause_back() -> void:
+	if pause_menu == "main":
+		_toggle_pause()
+	else:
+		pause_menu = "main"
+		pause_index = 0
+		_update_pause_menu()
+
+func _activate_pause_item() -> void:
+	var items: Array = PAUSE_MENUS.get(pause_menu, []) as Array as Array
+	if pause_index < 0 or pause_index >= items.size():
+		return
+	var item: String = str(items[pause_index])
+	match pause_menu:
+		"main":
+			match item:
+				"Resume": _toggle_pause()
+				"Options":
+					pause_menu = "options"
+					pause_index = 0
+					_update_pause_menu()
+				"Dev Tools":
+					pause_menu = "dev"
+					pause_index = 0
+					_update_pause_menu()
+				"Quit": get_tree().quit()
+		"options":
+			match item:
+				"Toggle Help Overlay":
+					show_help = not show_help
+					_apply_overlay_visibility()
+					show_status("Help overlay: %s" % ("ON" if show_help else "OFF"))
+					_update_pause_menu()
+				"Toggle Debug Overlay":
+					show_debug = not show_debug
+					_apply_overlay_visibility()
+					show_status("Debug overlay: %s" % ("ON" if show_debug else "OFF"))
+					_update_pause_menu()
+				"Toggle Controller Debug":
+					show_controller_debug = not show_controller_debug
+					_apply_overlay_visibility()
+					show_status("Controller debug: %s" % ("ON" if show_controller_debug else "OFF"))
+					_update_pause_menu()
+				"Back": _pause_back()
+		"dev":
+			match item:
+				"Teleport to Origin":
+					player_world_pos = _find_safe_spawn(Vector2(20 * TILE_SIZE, 13 * TILE_SIZE))
+					player.position = player_world_pos
+					camera.position = player_world_pos
+					build_cursor_world = _snap_world_to_tile_center(player_world_pos)
+					_refresh_chunks(true)
+					show_status("Teleported to origin")
+					_toggle_pause()
+				"Recenter Safe Spawn":
+					player_world_pos = _find_safe_spawn(player_world_pos)
+					player.position = player_world_pos
+					camera.position = player_world_pos
+					show_status("Recentered safely")
+					_toggle_pause()
+				"Regenerate Nearby Chunks":
+					chunk_manager.regenerate_chunks_around(player_world_pos, KEEP_CHUNK_RADIUS)
+					_refresh_chunks(true)
+					show_status("Nearby chunks regenerated")
+					_toggle_pause()
+				"Back": _pause_back()
+
+func _layout_pause_ui() -> void:
+	var view_size: Vector2 = get_viewport_rect().size
+	pause_backdrop.position = Vector2.ZERO
+	pause_backdrop.size = view_size
+	var panel_size: Vector2 = Vector2(minf(560.0, view_size.x - 80.0), minf(420.0, view_size.y - 100.0))
+	pause_panel.size = panel_size
+	pause_panel.position = Vector2(floor((view_size.x - panel_size.x) * 0.5), floor((view_size.y - panel_size.y) * 0.42))
+	pause_title.position = Vector2(24, 20)
+	pause_title.size = Vector2(panel_size.x - 48.0, 38.0)
+	pause_items.position = Vector2(24, 84)
+	pause_items.size = Vector2(panel_size.x - 48.0, panel_size.y - 170.0)
+	pause_hint.position = Vector2(24, panel_size.y - 64.0)
+	controller_debug_label.position = Vector2(12.0, 88.0)
+	controller_debug_label.size = Vector2(minf(560.0, view_size.x - 24.0), minf(300.0, view_size.y - 120.0))
+	pause_hint.size = Vector2(panel_size.x - 48.0, 44.0)
+
+func _layout_build_ui() -> void:
+	var view_size: Vector2 = get_viewport_rect().size
+	if palette_open:
+		var panel_size: Vector2 = Vector2(minf(1080.0, view_size.x - 96.0), minf(440.0, view_size.y - 120.0))
+		build_panel.size = panel_size
+		build_panel.position = Vector2(floor((view_size.x - panel_size.x) * 0.5), floor((view_size.y - panel_size.y) * 0.33))
+	else:
+		var hotbar_size: Vector2 = Vector2(minf(760.0, view_size.x - 160.0), 82.0)
+		build_panel.size = hotbar_size
+		build_panel.position = Vector2(floor((view_size.x - hotbar_size.x) * 0.5), view_size.y - hotbar_size.y - 16.0)
+	build_title.position = Vector2(18.0, 16.0)
+	build_title.size = Vector2(build_panel.size.x - 36.0, 30.0)
+	build_items.position = Vector2(18.0, 52.0)
+	build_items.size = Vector2(build_panel.size.x - 36.0, 128.0)
+	build_hint.position = Vector2(18.0, build_panel.size.y - 56.0)
+	build_hint.size = Vector2(build_panel.size.x - 36.0, 42.0)
+	build_title.visible = false
+	build_items.visible = false
+	build_hint.visible = false
+	if build_panel.visible:
+		build_panel.queue_redraw()
+
+func _update_pause_menu() -> void:
+	pause_title.text = "Paused" if pause_menu == "main" else ("Options" if pause_menu == "options" else "Dev Tools")
+	var items: Array = PAUSE_MENUS.get(pause_menu, []) as Array as Array
+	var lines: Array[String] = []
+	for i in range(items.size()):
+		var text: String = str(items[i])
+		if pause_menu == "options":
+			if text == "Toggle Help Overlay":
+				text += " [%s]" % ("ON" if show_help else "OFF")
+			elif text == "Toggle Debug Overlay":
+				text += " [%s]" % ("ON" if show_debug else "OFF")
+			elif text == "Toggle Controller Debug":
+				text += " [%s]" % ("ON" if show_controller_debug else "OFF")
+		lines.append(("> " if i == pause_index else "  ") + text)
+	pause_items.text = "\n".join(lines)
+	pause_hint.text = "Esc/Start pause   W/S or D-pad move   Enter/A select   Esc/B back"
+
+func _change_build_page(direction: int) -> void:
+	var selected_tile_id: int = get_current_build_tile()
+	build_page_index = posmod(build_page_index + direction, BUILD_SECTIONS.size())
+	build_subtab_index = clampi(build_subtab_index, 0, maxi(0, _get_current_subtabs().size() - 1))
+	if _get_current_page_items().is_empty():
+		build_subtab_index = 0
+	_sync_build_selection_to_current_pool(selected_tile_id)
+	_update_build_palette_text()
+	if build_panel.visible:
+		build_panel.queue_redraw()
+	show_status("Category: %s" % _get_current_page_name())
+
+func _change_build_subtab(direction: int) -> void:
+	var selected_tile_id: int = get_current_build_tile()
+	var subtabs: Array = _get_current_subtabs()
+	if subtabs.is_empty():
+		return
+	build_subtab_index = posmod(build_subtab_index + direction, subtabs.size())
+	if _get_current_page_items().is_empty():
+		build_subtab_index = 0
+	_sync_build_selection_to_current_pool(selected_tile_id)
+	_update_build_palette_text()
+	if build_panel.visible:
+		build_panel.queue_redraw()
+	show_status("Group: %s" % _get_current_subtab_name())
+
+func _move_build_selection(dx: int, dy: int) -> void:
+	var items: Array = _get_active_build_items()
+	if items.is_empty():
+		return
+	var cols: int = mini(4, items.size())
+	var rows: int = ceili(float(items.size()) / float(cols))
+	var idx: int = clampi(build_item_index, 0, items.size() - 1)
+	var col: int = idx % cols
+	var row: int = int(idx / cols)
+	col = clampi(col + dx, 0, cols - 1)
+	row = clampi(row + dy, 0, rows - 1)
+	var next_idx: int = row * cols + col
+	if next_idx >= items.size():
+		next_idx = items.size() - 1
+	if next_idx != build_item_index:
+		build_item_index = next_idx
+		_update_build_palette_text()
+		if build_panel.visible:
+			build_panel.queue_redraw()
+		show_status("Selected %s" % get_current_build_tile_name())
+
+func _get_current_section() -> Dictionary:
+	return BUILD_SECTIONS[build_page_index] as Dictionary
+
+func _get_current_subtabs() -> Array:
+	return (_get_current_section().get("subtabs", []) as Array)
+
+func _get_current_layer_name() -> String:
+	return str(_get_current_section().get("layer", "object"))
+
+func _get_current_subtab() -> Dictionary:
+	var subtabs: Array = _get_current_subtabs()
+	if subtabs.is_empty():
+		return {"name": "Items", "items": []}
+	build_subtab_index = clampi(build_subtab_index, 0, subtabs.size() - 1)
+	var subtab: Dictionary = subtabs[build_subtab_index] as Dictionary
+	if (subtab.get("items", []) as Array).is_empty() and subtabs.size() > 0:
+		build_subtab_index = 0
+		subtab = subtabs[build_subtab_index] as Dictionary
+	return subtab
+
+func _get_current_subtab_name() -> String:
+	return str(_get_current_subtab().get("name", "Items"))
+
+func _get_current_hotbar_items() -> Array:
+	var section: Dictionary = _get_current_section()
+	var subtabs: Array = section.get("subtabs", []) as Array
+	var merged: Array = []
+	for subtab_any in subtabs:
+		var subtab: Dictionary = subtab_any as Dictionary
+		for item_any in (subtab.get("items", []) as Array):
+			if not merged.has(item_any):
+				merged.append(item_any)
+	return merged
+
+func _get_active_build_items() -> Array:
+	return _get_current_page_items() if palette_open else _get_current_hotbar_items()
+
+func _sync_build_selection_to_current_pool(preferred_tile_id: int = -999999) -> void:
+	var items: Array = _get_active_build_items()
+	if items.is_empty():
+		build_item_index = 0
+		return
+	var tile_id: int = preferred_tile_id
+	if tile_id == -999999:
+		tile_id = get_current_build_tile()
+	var idx: int = items.find(tile_id)
+	if idx == -1:
+		build_item_index = clampi(build_item_index, 0, items.size() - 1)
+	else:
+		build_item_index = idx
+
+func _change_build_item(direction: int) -> void:
+	var items: Array = _get_active_build_items()
+	if items.is_empty():
+		return
+	build_item_index = posmod(build_item_index + direction, items.size())
+	_update_build_palette_text()
+	if build_panel.visible:
+		build_panel.queue_redraw()
+	show_status("Selected %s" % get_current_build_tile_name())
+
+func _change_brush_size(direction: int) -> void:
+	var sizes: Array[int] = [1, 3, 5]
+	var idx: int = sizes.find(build_brush_size)
+	if idx == -1:
+		idx = 0
+	idx = posmod(idx + direction, sizes.size())
+	build_brush_size = sizes[idx]
+	_update_build_palette_text()
+	if build_panel.visible:
+		build_panel.queue_redraw()
+	show_status("Brush %dx%d" % [build_brush_size, build_brush_size])
+	world.queue_redraw()
+
+func _get_current_page_name() -> String:
+	return str(_get_current_section().get("name", "Page"))
+
+func _get_current_page_items() -> Array:
+	return (_get_current_subtab().get("items", []) as Array)
+
+func get_current_hotbar_group_name() -> String:
+	return _get_current_page_name()
+
+func get_current_hotbar_items() -> Array:
+	return _get_current_hotbar_items()
+
+func get_current_build_tile() -> int:
+	var items: Array = _get_active_build_items()
+	if items.is_empty():
+		return 0
+	build_item_index = clampi(build_item_index, 0, items.size() - 1)
+	return int(items[build_item_index])
+
+func get_current_build_tile_name() -> String:
+	var tile_id: int = get_current_build_tile()
+	return str(TILE_LABELS.get(tile_id, "Tile %d" % tile_id))
+
+func _update_build_palette_text() -> void:
+	build_title.visible = false
+	build_items.visible = false
+	build_hint.visible = false
+	build_title.text = ""
+	build_items.text = ""
+	build_hint.text = ""
+	if build_panel.visible:
+		build_panel.queue_redraw()
+
+func _update_hud() -> void:
+	var chunk: Dictionary = chunk_manager.get_chunk(current_chunk)
+	var local: Vector2i = chunk_manager.world_to_local_tile(player_world_pos)
+	var theme: String = str(chunk.get("theme", "field"))
+	var status_line: String = status_text if status_text != "" else ("Paused" if paused else "")
+	hud.text = "Chunk %s   Theme %s   Tile (%d,%d)%s" % [str(current_chunk), theme, local.x, local.y, ("   " + status_line) if status_line != "" else ""]
+	if build_mode:
+		var cchunk: Vector2i = chunk_manager.world_to_chunk_coord(build_cursor_world)
+		var clocal: Vector2i = chunk_manager.world_to_local_tile(build_cursor_world)
+		hud.text = "Chunk %s   Cursor %s (%d,%d)   %s   Brush %dx%d%s" % [str(current_chunk), str(cchunk), clocal.x, clocal.y, get_current_build_tile_name(), build_brush_size, build_brush_size, ("   " + status_text) if status_text != "" else ""]
+	debug_label.text = "Loaded: %d   Visible: %d\nPos: (%.0f, %.0f)   Tile under: %d\nBuild page: %s   Palette: %s" % [chunk_manager.get_loaded_chunks().size(), visible_chunk_coords_cache.size(), player_world_pos.x, player_world_pos.y, chunk_manager.get_tile_at_world(player_world_pos), _get_current_page_name(), "OPEN" if palette_open else "CLOSED"]
+	help_label.text = "Move: WASD / Arrows / Left Stick / D-pad\nSword: J / Space / A / X\nRoll: K / Shift / B / Y\nInteract: E / RB\nPause: Esc / Start\nBuild: Tab / L3   Palette: P / Back / X"
+	if show_controller_debug:
+		_update_controller_debug_text()
+	_apply_overlay_visibility()
+
+func _track_controller_debug_event(event: InputEvent) -> void:
+	if event is InputEventJoypadButton:
+		var joy_button: InputEventJoypadButton = event
+		_push_controller_debug_line("Joy %d Button %d %s" % [joy_button.device, joy_button.button_index, "pressed" if joy_button.pressed else "released"])
+	elif event is InputEventJoypadMotion:
+		var joy_motion: InputEventJoypadMotion = event
+		if absf(joy_motion.axis_value) >= 0.35:
+			_push_controller_debug_line("Joy %d Axis %d value %.2f" % [joy_motion.device, joy_motion.axis, joy_motion.axis_value])
+
+func _push_controller_debug_line(line: String) -> void:
+	if _joy_debug_lines.is_empty() or _joy_debug_lines[0] != line:
+		_joy_debug_lines.insert(0, line)
+	while _joy_debug_lines.size() > 10:
+		_joy_debug_lines.pop_back()
+	_update_controller_debug_text()
+
+func _update_controller_debug_text() -> void:
+	var pads: PackedInt32Array = Input.get_connected_joypads()
+	var lines: Array[String] = []
+	lines.append("Controller Debug")
+	if pads.is_empty():
+		lines.append("No controller detected")
+	else:
+		for device in pads:
+			lines.append("Joy %d: %s" % [device, Input.get_joy_name(device)])
+	lines.append("")
+	lines.append("Press buttons and move sticks/triggers.")
+	lines.append("Write down Button # and Axis # values.")
+	lines.append("")
+	if _joy_debug_lines.is_empty():
+		lines.append("Waiting for input...")
+	else:
+		lines.append_array(_joy_debug_lines)
+	controller_debug_label.text = "\n".join(lines)
+
+func _find_safe_spawn(preferred: Vector2) -> Vector2:
+	if not chunk_manager.is_body_colliding(preferred, PLAYER_COLLISION_SIZE):
+		return preferred
+	for radius in range(1, 9):
+		for oy in range(-radius, radius + 1):
+			for ox in range(-radius, radius + 1):
+				var candidate: Vector2 = preferred + Vector2(ox * TILE_SIZE, oy * TILE_SIZE)
+				if not chunk_manager.is_body_colliding(candidate, PLAYER_COLLISION_SIZE):
+					return candidate
+	return preferred
+
+func _ensure_input_actions() -> void:
+	_bind_key("move_left", KEY_A); _bind_key("move_left", KEY_LEFT)
+	_bind_key("move_right", KEY_D); _bind_key("move_right", KEY_RIGHT)
+	_bind_key("move_up", KEY_W); _bind_key("move_up", KEY_UP)
+	_bind_key("move_down", KEY_S); _bind_key("move_down", KEY_DOWN)
+	_bind_key("attack", KEY_J); _bind_key("attack", KEY_SPACE)
+	_bind_key("roll", KEY_K); _bind_key("roll", KEY_SHIFT)
+	_bind_key("interact", KEY_E)
+	_bind_key("pause", KEY_ESCAPE)
+	_bind_key("toggle_help", KEY_F1)
+	_bind_key("toggle_debug", KEY_F3)
+	_bind_key("menu_up", KEY_UP); _bind_key("menu_up", KEY_W)
+	_bind_key("menu_down", KEY_DOWN); _bind_key("menu_down", KEY_S)
+	_bind_key("menu_accept", KEY_ENTER); _bind_key("menu_accept", KEY_SPACE)
+	_bind_key("menu_back", KEY_ESCAPE)
+	_bind_key("build_toggle", KEY_TAB)
+	_bind_key("build_palette", KEY_P)
+	_bind_key("build_prev", KEY_Q)
+	_bind_key("build_next", KEY_E)
+	_bind_key("build_smaller", KEY_BRACKETLEFT)
+	_bind_key("build_larger", KEY_BRACKETRIGHT)
+	_bind_key("build_place", KEY_ENTER); _bind_key("build_place", KEY_SPACE)
+	_bind_key("build_erase", KEY_BACKSPACE); _bind_key("build_erase", KEY_DELETE)
+	_bind_key("toggle_grid_focus", KEY_G)
+
+	_bind_joy_axis("move_left", JOY_AXIS_LEFT_X, -1.0)
+	_bind_joy_axis("move_right", JOY_AXIS_LEFT_X, 1.0)
+	_bind_joy_axis("move_up", JOY_AXIS_LEFT_Y, -1.0)
+	_bind_joy_axis("move_down", JOY_AXIS_LEFT_Y, 1.0)
+	_bind_joy_button("move_left", JOY_BUTTON_DPAD_LEFT)
+	_bind_joy_button("move_right", JOY_BUTTON_DPAD_RIGHT)
+	_bind_joy_button("move_up", JOY_BUTTON_DPAD_UP)
+	_bind_joy_button("move_down", JOY_BUTTON_DPAD_DOWN)
+
+	# Switch Pro raw mapping from controller debug overlay:
+	# 0=B, 1=A, 2=Y, 3=X, 7=L3, 9=L1, 10=R1, axis 4=L2, axis 5=R2
+	_clear_joy_bindings("attack")
+	_clear_joy_bindings("roll")
+	_clear_joy_bindings("interact")
+	_clear_joy_bindings("pause")
+	_clear_joy_bindings("menu_up")
+	_clear_joy_bindings("menu_down")
+	_clear_joy_bindings("menu_accept")
+	_clear_joy_bindings("menu_back")
+	_clear_joy_bindings("build_toggle")
+	_clear_joy_bindings("build_palette")
+	_clear_joy_bindings("build_prev")
+	_clear_joy_bindings("build_next")
+	_clear_joy_bindings("build_place")
+	_clear_joy_bindings("build_erase")
+	_clear_joy_bindings("build_smaller")
+	_clear_joy_bindings("build_larger")
+	_clear_joy_bindings("build_cycle_category")
+	_clear_joy_bindings("build_cycle_brush")
+	_clear_joy_bindings("toggle_grid_focus")
+
+	_bind_joy_button("attack", 0)
+	_bind_joy_button("roll", 1)
+	_bind_joy_button("interact", 10)
+	_bind_joy_button("pause", JOY_BUTTON_START)
+	_bind_joy_button("menu_up", JOY_BUTTON_DPAD_UP)
+	_bind_joy_button("menu_down", JOY_BUTTON_DPAD_DOWN)
+	_bind_joy_button("menu_accept", 1)
+	_bind_joy_button("menu_back", 0)
+	_bind_joy_button("build_toggle", 7)
+	_bind_joy_button("build_palette", 2)
+	_bind_joy_button("build_prev", 9)
+	_bind_joy_button("build_next", 10)
+	_bind_joy_button("build_place", 1)
+	_bind_joy_button("build_erase", 0)
+	_bind_joy_button("toggle_grid_focus", JOY_BUTTON_RIGHT_STICK)
+	_bind_joy_axis("build_smaller", 4, 1.0)
+	_bind_joy_axis("build_larger", 5, 1.0)
+	_bind_joy_button("build_cycle_brush", 3)
+
+
+func _clear_joy_bindings(action: StringName) -> void:
+	if not InputMap.has_action(action):
+		return
+	for e in InputMap.action_get_events(action):
+		if e is InputEventJoypadButton or e is InputEventJoypadMotion:
+			InputMap.action_erase_event(action, e)
+
+func _remove_joy_button_binding(action: StringName, button_index: JoyButton) -> void:
+	if not InputMap.has_action(action):
+		return
+	for e in InputMap.action_get_events(action):
+		if e is InputEventJoypadButton and e.button_index == button_index:
+			InputMap.action_erase_event(action, e)
+
+func _remove_joy_axis_binding(action: StringName, axis: JoyAxis, axis_value: float) -> void:
+	if not InputMap.has_action(action):
+		return
+	for e in InputMap.action_get_events(action):
+		if e is InputEventJoypadMotion and e.axis == axis and is_equal_approx(e.axis_value, axis_value):
+			InputMap.action_erase_event(action, e)
+
+func _ensure_action_exists(action: StringName) -> void:
+	if not InputMap.has_action(action):
+		InputMap.add_action(action)
+
+func _bind_key(action: StringName, keycode: Key) -> void:
+	_ensure_action_exists(action)
+	for e in InputMap.action_get_events(action):
+		if e is InputEventKey and e.physical_keycode == keycode:
+			return
+	var ev: InputEventKey = InputEventKey.new()
+	ev.physical_keycode = keycode
+	InputMap.action_add_event(action, ev)
+
+func _bind_joy_button(action: StringName, button_index: JoyButton) -> void:
+	_ensure_action_exists(action)
+	for e in InputMap.action_get_events(action):
+		if e is InputEventJoypadButton and e.button_index == button_index:
+			return
+	var ev: InputEventJoypadButton = InputEventJoypadButton.new()
+	ev.button_index = button_index
+	InputMap.action_add_event(action, ev)
+
+func _bind_joy_axis(action: StringName, axis: JoyAxis, axis_value: float) -> void:
+	_ensure_action_exists(action)
+	for e in InputMap.action_get_events(action):
+		if e is InputEventJoypadMotion and e.axis == axis and is_equal_approx(e.axis_value, axis_value):
+			return
+	var ev: InputEventJoypadMotion = InputEventJoypadMotion.new()
+	ev.axis = axis
+	ev.axis_value = axis_value
+	InputMap.action_add_event(action, ev)
