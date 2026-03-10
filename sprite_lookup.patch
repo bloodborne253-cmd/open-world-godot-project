@@ -1,0 +1,150 @@
+--- a/scripts/world_view.gd
++++ b/scripts/world_view.gd
+@@ -36,16 +36,69 @@
+ 	10: "res://assets/tiles/objects/chest_closed.png",
+ }
+ 
++const TILE_TEXTURE_NAMES := {
++	0: ["grass"],
++	1: ["wall", "stone_wall", "brick_wall"],
++	2: ["sand"],
++	3: ["bush"],
++	4: ["rock"],
++	5: ["pot"],
++	6: ["dirt"],
++	10: ["chest_closed", "chest"],
++	11: ["chest_open"],
++	12: ["push_block", "block"],
++	16: ["water"],
++	17: ["deep_water", "water_deep"],
++	18: ["hole", "pit"],
++}
++
++const TILE_TEXTURE_DIRS := {
++	0: ["ground", ""],
++	1: ["objects", "walls", ""],
++	2: ["ground", ""],
++	3: ["objects", ""],
++	4: ["objects", ""],
++	5: ["objects", ""],
++	6: ["ground", ""],
++	10: ["objects", ""],
++	11: ["objects", ""],
++	12: ["objects", "special", ""],
++	16: ["ground", "liquid", ""],
++	17: ["ground", "liquid", ""],
++	18: ["ground", "special", ""],
++}
++
++const TILE_TEXTURE_SUFFIXES := ["_01", "", "_idle", "_closed", "_open"]
++
+ func _get_tile_texture(tile_id: int) -> Texture2D:
+ 	if _tile_texture_cache.has(tile_id):
+ 		return _tile_texture_cache[tile_id] as Texture2D
+-	var path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
+ 	var tex: Texture2D = null
+-	if path != "" and ResourceLoader.exists(path):
+-		tex = load(path) as Texture2D
++	for path in _get_tile_texture_candidates(tile_id):
++		if ResourceLoader.exists(path):
++			tex = load(path) as Texture2D
++			break
+ 	_tile_texture_cache[tile_id] = tex
+ 	return tex
+ 
++func _get_tile_texture_candidates(tile_id: int) -> Array[String]:
++	var candidates: Array[String] = []
++	var direct_path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
++	if direct_path != "":
++		candidates.append(direct_path)
++	var names: Array = TILE_TEXTURE_NAMES.get(tile_id, []) as Array
++	var dirs: Array = TILE_TEXTURE_DIRS.get(tile_id, [""]) as Array
++	for dir_any in dirs:
++		var dir_name: String = str(dir_any)
++		for name_any in names:
++			var base_name: String = str(name_any)
++			for suffix in TILE_TEXTURE_SUFFIXES:
++				var filename: String = base_name + str(suffix) + ".png"
++				var path: String = "res://assets/tiles/%s/%s" % [dir_name, filename] if dir_name != "" else "res://assets/tiles/%s" % filename
++				if not candidates.has(path):
++					candidates.append(path)
++	return candidates
++
+ func _draw_tile_visual(px: float, py: float, ts: int, tile_id: int, modulate: Color = Color.WHITE) -> bool:
+ 	var tex: Texture2D = _get_tile_texture(tile_id)
+ 	if tex != null:
+--- a/scripts/build_panel.gd
++++ b/scripts/build_panel.gd
+@@ -42,16 +42,69 @@
+ 	10: "res://assets/tiles/objects/chest_closed.png",
+ }
+ 
++const TILE_TEXTURE_NAMES := {
++	0: ["grass"],
++	1: ["wall", "stone_wall", "brick_wall"],
++	2: ["sand"],
++	3: ["bush"],
++	4: ["rock"],
++	5: ["pot"],
++	6: ["dirt"],
++	10: ["chest_closed", "chest"],
++	11: ["chest_open"],
++	12: ["push_block", "block"],
++	16: ["water"],
++	17: ["deep_water", "water_deep"],
++	18: ["hole", "pit"],
++}
++
++const TILE_TEXTURE_DIRS := {
++	0: ["ground", ""],
++	1: ["objects", "walls", ""],
++	2: ["ground", ""],
++	3: ["objects", ""],
++	4: ["objects", ""],
++	5: ["objects", ""],
++	6: ["ground", ""],
++	10: ["objects", ""],
++	11: ["objects", ""],
++	12: ["objects", "special", ""],
++	16: ["ground", "liquid", ""],
++	17: ["ground", "liquid", ""],
++	18: ["ground", "special", ""],
++}
++
++const TILE_TEXTURE_SUFFIXES := ["_01", "", "_idle", "_closed", "_open"]
++
+ func _get_tile_texture(tile_id: int) -> Texture2D:
+ 	if _tile_texture_cache.has(tile_id):
+ 		return _tile_texture_cache[tile_id] as Texture2D
+-	var path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
+ 	var tex: Texture2D = null
+-	if path != "" and ResourceLoader.exists(path):
+-		tex = load(path) as Texture2D
++	for path in _get_tile_texture_candidates(tile_id):
++		if ResourceLoader.exists(path):
++			tex = load(path) as Texture2D
++			break
+ 	_tile_texture_cache[tile_id] = tex
+ 	return tex
+ 
++func _get_tile_texture_candidates(tile_id: int) -> Array[String]:
++	var candidates: Array[String] = []
++	var direct_path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
++	if direct_path != "":
++		candidates.append(direct_path)
++	var names: Array = TILE_TEXTURE_NAMES.get(tile_id, []) as Array
++	var dirs: Array = TILE_TEXTURE_DIRS.get(tile_id, [""]) as Array
++	for dir_any in dirs:
++		var dir_name: String = str(dir_any)
++		for name_any in names:
++			var base_name: String = str(name_any)
++			for suffix in TILE_TEXTURE_SUFFIXES:
++				var filename: String = base_name + str(suffix) + ".png"
++				var path: String = "res://assets/tiles/%s/%s" % [dir_name, filename] if dir_name != "" else "res://assets/tiles/%s" % filename
++				if not candidates.has(path):
++					candidates.append(path)
++	return candidates
++
+ func _draw() -> void:
+ 	if main_ref == null:
+ 		return

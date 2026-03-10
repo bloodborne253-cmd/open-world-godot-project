@@ -36,15 +36,79 @@ const TILE_TEXTURE_PATHS := {
 	10: "res://assets/tiles/objects/chest_closed.png",
 }
 
+const TILE_TEXTURE_NAMES := {
+	0: ["grass"],
+	1: ["wall", "stone_wall", "brick_wall"],
+	2: ["sand"],
+	3: ["bush"],
+	4: ["rock"],
+	5: ["pot"],
+	6: ["dirt"],
+	10: ["chest_closed", "chest"],
+	11: ["chest_open"],
+	12: ["push_block", "block"],
+	16: ["water"],
+	17: ["deep_water", "water_deep"],
+	18: ["hole", "pit"],
+}
+
+const TILE_TEXTURE_DIRS := {
+	0: ["ground", ""],
+	1: ["objects", "walls", ""],
+	2: ["ground", ""],
+	3: ["objects", ""],
+	4: ["objects", ""],
+	5: ["objects", ""],
+	6: ["ground", ""],
+	10: ["objects", ""],
+	11: ["objects", ""],
+	12: ["objects", "special", ""],
+	16: ["ground", "liquid", ""],
+	17: ["ground", "liquid", ""],
+	18: ["ground", "special", ""],
+}
+
+const TILE_TEXTURE_SUFFIXES := ["_01", "", "_idle", "_closed", "_open"]
+
 func _get_tile_texture(tile_id: int) -> Texture2D:
 	if _tile_texture_cache.has(tile_id):
 		return _tile_texture_cache[tile_id] as Texture2D
-	var path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
+
 	var tex: Texture2D = null
-	if path != "" and ResourceLoader.exists(path):
-		tex = load(path) as Texture2D
+	for path in _get_tile_texture_candidates(tile_id):
+		if ResourceLoader.exists(path):
+			tex = load(path) as Texture2D
+			break
+
 	_tile_texture_cache[tile_id] = tex
 	return tex
+
+func _get_tile_texture_candidates(tile_id: int) -> Array[String]:
+	var candidates: Array[String] = []
+
+	var direct_path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
+	if direct_path != "":
+		candidates.append(direct_path)
+
+	var names: Array = TILE_TEXTURE_NAMES.get(tile_id, []) as Array
+	var dirs: Array = TILE_TEXTURE_DIRS.get(tile_id, [""]) as Array
+
+	for dir_any in dirs:
+		var dir_name: String = str(dir_any)
+		for name_any in names:
+			var base_name: String = str(name_any)
+			for suffix_any in TILE_TEXTURE_SUFFIXES:
+				var suffix: String = str(suffix_any)
+				var filename: String = base_name + suffix + ".png"
+				var path: String = ""
+				if dir_name != "":
+					path = "res://assets/tiles/%s/%s" % [dir_name, filename]
+				else:
+					path = "res://assets/tiles/%s" % filename
+				if not candidates.has(path):
+					candidates.append(path)
+
+	return candidates
 
 func _draw_tile_visual(px: float, py: float, ts: int, tile_id: int, modulate: Color = Color.WHITE) -> bool:
 	var tex: Texture2D = _get_tile_texture(tile_id)
@@ -56,8 +120,10 @@ func _draw_tile_visual(px: float, py: float, ts: int, tile_id: int, modulate: Co
 func _draw() -> void:
 	if main_ref == null:
 		return
+
 	var cm: ChunkManager = main_ref.chunk_manager
 	var ts: int = cm.TILE_SIZE
+
 	for coord in main_ref.get_visible_chunk_coords():
 		var chunk: Dictionary = cm.get_chunk(coord)
 		var origin: Vector2 = cm.chunk_origin(coord)
@@ -66,6 +132,7 @@ func _draw() -> void:
 		var grid_w: int = int(chunk.get("grid_w", 0))
 		var ground: Array = chunk.get("ground", []) as Array
 		var objects: Array = chunk.get("objects", []) as Array
+
 		for y in range(grid_h):
 			var grow: Array = ground[y]
 			var orow: Array = objects[y]
@@ -73,19 +140,24 @@ func _draw() -> void:
 				var px: float = origin.x + x * ts
 				var py: float = origin.y + y * ts
 				var g: int = int(grow[x])
+
 				if not _draw_tile_visual(px, py, ts, g, tint):
 					var gc: Color = COLORS.get(g, Color.MAGENTA)
 					gc = Color(gc.r * tint.r, gc.g * tint.g, gc.b * tint.b, gc.a)
 					draw_rect(Rect2(px, py, ts, ts), gc)
+
 				var obj: int = int(orow[x])
 				if obj != cm.OBJECT_NONE:
 					if not _draw_tile_visual(px, py, ts, obj):
 						_draw_tile_shape(px, py, ts, obj)
-		draw_rect(Rect2(origin.x, origin.y, grid_w * ts, grid_h * ts), Color(1,1,1,0), false, 2.0)
+
+		draw_rect(Rect2(origin.x, origin.y, grid_w * ts, grid_h * ts), Color(1, 1, 1, 0), false, 2.0)
+
 	_draw_build_overlay(cm, ts)
 
 func _draw_tile_shape(px: float, py: float, ts: int, tile_id: int) -> void:
 	var c: Color = COLORS.get(tile_id, Color.MAGENTA)
+
 	if tile_id == 1:
 		draw_rect(Rect2(px, py, ts, ts), c)
 		for ry in range(3):
@@ -112,25 +184,32 @@ func _draw_tile_shape(px: float, py: float, ts: int, tile_id: int) -> void:
 func _draw_build_overlay(cm: ChunkManager, ts: int) -> void:
 	if not bool(main_ref.build_mode):
 		return
+
 	var view_size: Vector2 = main_ref.get_viewport_rect().size
 	var cam_pos: Vector2 = main_ref.camera.position
 	var draw_rect_area: Rect2 = Rect2(cam_pos - view_size * 0.5, view_size)
+
 	if bool(main_ref.grid_near_cursor_only):
 		draw_rect_area = Rect2(main_ref.build_cursor_world - Vector2(6.5 * ts, 6.5 * ts), Vector2(13.0 * ts, 13.0 * ts))
+
 	var left: int = floori(draw_rect_area.position.x / float(ts))
 	var top: int = floori(draw_rect_area.position.y / float(ts))
 	var right: int = floori((draw_rect_area.position.x + draw_rect_area.size.x) / float(ts))
 	var bottom: int = floori((draw_rect_area.position.y + draw_rect_area.size.y) / float(ts))
+
 	for gx in range(left, right + 2):
 		var px: float = gx * ts
-		draw_line(Vector2(px, top * ts), Vector2(px, (bottom + 1) * ts), Color(1,1,1,0.08), 1.0)
+		draw_line(Vector2(px, top * ts), Vector2(px, (bottom + 1) * ts), Color(1, 1, 1, 0.08), 1.0)
+
 	for gy in range(top, bottom + 2):
 		var py: float = gy * ts
-		draw_line(Vector2(left * ts, py), Vector2((right + 1) * ts, py), Color(1,1,1,0.08), 1.0)
+		draw_line(Vector2(left * ts, py), Vector2((right + 1) * ts, py), Color(1, 1, 1, 0.08), 1.0)
+
 	var brush: int = int(main_ref.build_brush_size)
 	var half_brush: int = int((brush - 1) / 2)
 	var start: Vector2 = main_ref.build_cursor_world - Vector2(half_brush * ts + ts / 2.0, half_brush * ts + ts / 2.0)
 	var size_px: int = brush * ts
+
 	draw_rect(Rect2(start, Vector2(size_px, size_px)), Color(1.0, 0.95, 0.3, 0.18), true)
 	draw_rect(Rect2(start, Vector2(size_px, size_px)), Color(1.0, 0.95, 0.3, 0.95), false, 2.0)
 	draw_circle(main_ref.player_world_pos, 10.0, Color(0.3, 0.9, 1.0, 0.18))
