@@ -36,19 +36,27 @@ var roll_cd := 0.0
 var roll_dir := Vector2.ZERO
 var last_move := Vector2.DOWN
 var _side_vertical_hint := 1
+var max_health := 5
+var health := 5
+var coins := 0
+var invuln_t := 0.0
 
-@onready var animated_sprite: AnimatedSprite2D = _ensure_animated_sprite()
+@onready var animated_sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 func _ready() -> void:
+	add_to_group("player")
 	_setup_sprite_animations()
 	_update_animation(Vector2.ZERO)
+	queue_redraw()
 
 func _process(delta: float) -> void:
 	attack_t = max(attack_t - delta, 0.0)
 	roll_t = max(roll_t - delta, 0.0)
 	roll_cd = max(roll_cd - delta, 0.0)
+	invuln_t = max(invuln_t - delta, 0.0)
 	if attack_t == 0.0:
 		attack_applied = false
+	queue_redraw()
 
 func get_input_vector() -> Vector2:
 	var v := Input.get_vector("move_left", "move_right", "move_up", "move_down")
@@ -92,6 +100,33 @@ func try_start_roll(move: Vector2) -> void:
 	update_facing(roll_dir)
 	_update_animation(roll_dir)
 
+func take_damage(amount: int) -> void:
+	if amount <= 0 or invuln_t > 0.0:
+		return
+	health = max(health - amount, 0)
+	invuln_t = 0.5
+
+func heal(amount: int) -> void:
+	if amount <= 0:
+		return
+	health = min(health + amount, max_health)
+
+func add_coins(amount: int) -> void:
+	if amount <= 0:
+		return
+	coins += amount
+
+func spend_coins(amount: int) -> bool:
+	if amount <= 0:
+		return true
+	if coins < amount:
+		return false
+	coins -= amount
+	return true
+
+func is_full_health() -> bool:
+	return health >= max_health
+
 func movement_velocity() -> Vector2:
 	if roll_t > 0.0:
 		update_facing(roll_dir)
@@ -121,19 +156,6 @@ func sword_rect() -> Rect2:
 			size = Vector2(SWORD_THICK + 20.0, SWORD_THICK)
 	return Rect2(pos, size)
 
-func _ensure_animated_sprite() -> AnimatedSprite2D:
-	var sprite: AnimatedSprite2D = get_node_or_null("AnimatedSprite2D") as AnimatedSprite2D
-	if sprite == null:
-		sprite = AnimatedSprite2D.new()
-		sprite.name = "AnimatedSprite2D"
-		add_child(sprite)
-		sprite.owner = self if self.scene_file_path != "" else null
-	sprite.scale = SPRITE_SCALE
-	sprite.centered = true
-	sprite.position = Vector2.ZERO
-	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	return sprite
-
 func _setup_sprite_animations() -> void:
 	var frames := SpriteFrames.new()
 	for animation_name in ANIMATION_NAMES:
@@ -152,6 +174,19 @@ func _setup_sprite_animations() -> void:
 			atlas.region = Rect2(i * frame_width, 0, frame_width, frame_height)
 			frames.add_frame(animation_name, atlas)
 	animated_sprite.sprite_frames = frames
+	animated_sprite.scale = SPRITE_SCALE
+	animated_sprite.centered = true
+	animated_sprite.position = Vector2.ZERO
+	animated_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	animated_sprite.z_index = 10
+
+func _physics_process(_delta: float) -> void:
+	if animated_sprite == null:
+		return
+	if invuln_t > 0.0:
+		animated_sprite.modulate = Color(1.0, 0.65, 0.65, 1.0) if int(invuln_t * 20.0) % 2 == 0 else Color(1.0, 1.0, 1.0, 1.0)
+	else:
+		animated_sprite.modulate = Color.WHITE
 
 func _animation_facing_from_move(move: Vector2) -> String:
 	if move == Vector2.ZERO:
@@ -181,3 +216,24 @@ func _update_animation(move: Vector2) -> void:
 		animated_sprite.play(animation_name)
 	elif not animated_sprite.is_playing():
 		animated_sprite.play()
+
+func _draw() -> void:
+	if attack_t <= 0.0:
+		return
+	var t := 1.0 - (attack_t / ATTACK_TIME)
+	var alpha := 0.9 - (t * 0.45)
+	var blade_color := Color(0.95, 0.97, 1.0, alpha)
+	var edge_color := Color(0.55, 0.8, 1.0, alpha)
+	match facing:
+		"up":
+			draw_rect(Rect2(Vector2(-3, -SWORD_REACH - 18), Vector2(6, 26)), blade_color)
+			draw_line(Vector2(0, -SWORD_REACH - 20), Vector2(0, -6), edge_color, 2.0)
+		"down":
+			draw_rect(Rect2(Vector2(-3, 12), Vector2(6, 26)), blade_color)
+			draw_line(Vector2(0, 10), Vector2(0, SWORD_REACH + 18), edge_color, 2.0)
+		"left":
+			draw_rect(Rect2(Vector2(-SWORD_REACH - 18, -3), Vector2(26, 6)), blade_color)
+			draw_line(Vector2(-SWORD_REACH - 20, 0), Vector2(-6, 0), edge_color, 2.0)
+		"right":
+			draw_rect(Rect2(Vector2(12, -3), Vector2(26, 6)), blade_color)
+			draw_line(Vector2(10, 0), Vector2(SWORD_REACH + 18, 0), edge_color, 2.0)

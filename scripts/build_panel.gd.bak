@@ -39,28 +39,16 @@ const TILE_TEXTURE_PATHS := {
 	18: "res://assets/tiles/ground/hole_01.png",
 	3: "res://assets/tiles/objects/bush_01.png",
 	5: "res://assets/tiles/objects/pot_01.png",
+	10: "res://assets/tiles/objects/chest_closed.png",
+	11: "res://assets/tiles/objects/chest_open.png",
 }
-
-const CHEST_SHEET_PATH := "res://assets/tiles/objects/chest.png"
-const CHEST_CELL_SIZE := Vector2i(36, 25)
-
-func _get_chest_sheet_texture(tile_id: int) -> Texture2D:
-	if tile_id != 10 and tile_id != 11:
-		return null
-	var sheet: Texture2D = load(CHEST_SHEET_PATH) as Texture2D
-	if sheet == null:
-		return null
-	var atlas := AtlasTexture.new()
-	atlas.atlas = sheet
-	atlas.region = Rect2(Vector2(0, 0), Vector2(CHEST_CELL_SIZE))
-	return atlas
 
 func _get_tile_texture(tile_id: int) -> Texture2D:
 	if _tile_texture_cache.has(tile_id):
 		return _tile_texture_cache[tile_id] as Texture2D
 	var path: String = str(TILE_TEXTURE_PATHS.get(tile_id, ""))
-	var tex: Texture2D = _get_chest_sheet_texture(tile_id)
-	if tex == null and path != "" and ResourceLoader.exists(path):
+	var tex: Texture2D = null
+	if path != "" and ResourceLoader.exists(path):
 		tex = load(path) as Texture2D
 	_tile_texture_cache[tile_id] = tex
 	return tex

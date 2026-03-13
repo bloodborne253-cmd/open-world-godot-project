@@ -21,6 +21,7 @@ const TILE_DEEP := 17
 const TILE_HOLE := 18
 
 var chunks: Dictionary = {}
+var last_cut_results: Array[Dictionary] = []
 
 func chunk_pixel_size() -> Vector2:
 	return Vector2(CHUNK_W * TILE_SIZE, CHUNK_H * TILE_SIZE)
@@ -263,6 +264,7 @@ func is_body_colliding(world_pos: Vector2, body_size: Vector2) -> bool:
 	return false
 
 func sword_hit_world(rect: Rect2) -> bool:
+	last_cut_results.clear()
 	var changed: bool = false
 	var start_tx: int = floori(rect.position.x / float(TILE_SIZE))
 	var end_tx: int = floori((rect.position.x + rect.size.x) / float(TILE_SIZE))
@@ -274,15 +276,28 @@ func sword_hit_world(rect: Rect2) -> bool:
 			var tile_id := get_object_at_world(wp)
 			if can_cut_tile(tile_id):
 				clear_object_at_world(wp)
+				last_cut_results.append({"world_pos": wp, "tile_id": tile_id})
 				changed = true
 	return changed
+
+func consume_last_cut_results() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for item in last_cut_results:
+		out.append(item)
+	last_cut_results.clear()
+	return out
+
+func try_open_chest_at_world(world_pos: Vector2) -> bool:
+	if get_object_at_world(world_pos) != TILE_CHEST_CLOSED:
+		return false
+	set_object_at_world(world_pos, TILE_CHEST_OPEN)
+	return true
 
 func try_open_chest(player_world_pos: Vector2) -> bool:
 	var facing_offsets: Array[Vector2] = [Vector2.ZERO, Vector2(0, -24), Vector2(24, 0), Vector2(0, 24), Vector2(-24, 0)]
 	for off: Vector2 in facing_offsets:
 		var wp: Vector2 = player_world_pos + off
-		if get_object_at_world(wp) == TILE_CHEST_CLOSED:
-			set_object_at_world(wp, TILE_CHEST_OPEN)
+		if try_open_chest_at_world(wp):
 			return true
 	return false
 

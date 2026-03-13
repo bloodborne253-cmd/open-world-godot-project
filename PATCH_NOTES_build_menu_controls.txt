@@ -1,0 +1,6 @@
+Build menu controller fix
+
+- Y (button 2) opens/closes the palette in build mode
+- L1/R1 scroll the hotbar when palette is closed
+- L1/R1 switch subtabs when palette is open
+- Overworld controls are left alone; this only changes build mode controller handling

@@ -33,6 +33,8 @@ const TILE_TEXTURE_PATHS := {
 	18: "res://assets/tiles/ground/hole_01.png",
 	3: "res://assets/tiles/objects/bush_01.png",
 	5: "res://assets/tiles/objects/pot_01.png",
+	10: "res://assets/tiles/objects/chest_closed.png",
+	11: "res://assets/tiles/objects/chest_open.png",
 }
 
 const TILE_TEXTURE_NAMES := {
@@ -69,33 +71,15 @@ const TILE_TEXTURE_DIRS := {
 
 const TILE_TEXTURE_SUFFIXES := ["_01", "", "_idle", "_closed", "_open"]
 
-const CHEST_SHEET_PATH := "res://assets/tiles/objects/chest.png"
-const CHEST_CELL_SIZE := Vector2i(36, 25)
-
-
-func _get_chest_sheet_texture(tile_id: int) -> Texture2D:
-	if tile_id != 10 and tile_id != 11:
-		return null
-	var sheet: Texture2D = load(CHEST_SHEET_PATH) as Texture2D
-	if sheet == null:
-		return null
-	var atlas := AtlasTexture.new()
-	atlas.atlas = sheet
-	# Safe static icon from the sheet: closed brown chest (top-left cell).
-	# For now both closed/open tile IDs use the same source art so we avoid bad crops.
-	atlas.region = Rect2(Vector2(0, 0), Vector2(CHEST_CELL_SIZE))
-	return atlas
-
 func _get_tile_texture(tile_id: int) -> Texture2D:
 	if _tile_texture_cache.has(tile_id):
 		return _tile_texture_cache[tile_id] as Texture2D
 
-	var tex: Texture2D = _get_chest_sheet_texture(tile_id)
-	if tex == null:
-		for path in _get_tile_texture_candidates(tile_id):
-			if ResourceLoader.exists(path):
-				tex = load(path) as Texture2D
-				break
+	var tex: Texture2D = null
+	for path in _get_tile_texture_candidates(tile_id):
+		if ResourceLoader.exists(path):
+			tex = load(path) as Texture2D
+			break
 
 	_tile_texture_cache[tile_id] = tex
 	return tex
@@ -165,9 +149,7 @@ func _draw() -> void:
 
 				var obj: int = int(orow[x])
 				if obj != cm.OBJECT_NONE:
-					if bool(main_ref.has_method("use_scene_chests") and main_ref.use_scene_chests()) and obj in [cm.TILE_CHEST_CLOSED, cm.TILE_CHEST_OPEN]:
-						pass
-					elif not _draw_tile_visual(px, py, ts, obj):
+					if not _draw_tile_visual(px, py, ts, obj):
 						_draw_tile_shape(px, py, ts, obj)
 
 		draw_rect(Rect2(origin.x, origin.y, grid_w * ts, grid_h * ts), Color(1, 1, 1, 0), false, 2.0)

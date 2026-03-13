@@ -1,0 +1,79 @@
+[gd_scene format=3 uid="uid://bhyn3sn7lp8fi"]
+
+[ext_resource type="Script" uid="uid://vryt4wvqwfhx" path="res://assets/objects/chest.gd" id="1_fxrv7"]
+[ext_resource type="Texture2D" uid="uid://ctf45gxc34s2a" path="res://assets/tiles/objects/chest.png" id="2_c13xq"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wtiu6"]
+atlas = ExtResource("2_c13xq")
+region = Rect2(0, 0, 36, 25)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_17dvp"]
+atlas = ExtResource("2_c13xq")
+region = Rect2(252, 0, 36, 25)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_750u0"]
+atlas = ExtResource("2_c13xq")
+region = Rect2(144, 0, 36, 25)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_wqgeb"]
+atlas = ExtResource("2_c13xq")
+region = Rect2(180, 0, 36, 25)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_fk0s0"]
+atlas = ExtResource("2_c13xq")
+region = Rect2(216, 0, 36, 25)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_l28hj"]
+atlas = ExtResource("2_c13xq")
+region = Rect2(252, 0, 36, 25)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_18c3a"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_wtiu6")
+}],
+"loop": false,
+"name": &"closed",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_17dvp")
+}],
+"loop": false,
+"name": &"opened",
+"speed": 5.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_750u0")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_wqgeb")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_fk0s0")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_l28hj")
+}],
+"loop": false,
+"name": &"opening",
+"speed": 5.0
+}]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_qw2it"]
+size = Vector2(28, 20)
+
+[node name="chest" type="Node2D" unique_id=593521423]
+script = ExtResource("1_fxrv7")
+
+[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="." unique_id=1540691762]
+sprite_frames = SubResource("SpriteFrames_18c3a")
+animation = &"closed"
+
+[node name="Area2D" type="Area2D" parent="." unique_id=17977400]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Area2D" unique_id=1116769412]
+shape = SubResource("RectangleShape2D_qw2it")

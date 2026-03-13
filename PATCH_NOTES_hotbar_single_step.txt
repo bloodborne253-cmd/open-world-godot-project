@@ -1,0 +1,4 @@
+Hotbar shoulder fix
+- Fixed L1/R1 in build mode hotbar so each press moves exactly one slot.
+- Cause: shoulder buttons were being handled twice in the same frame.
+- Palette subtab behavior stays the same.

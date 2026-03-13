@@ -1,0 +1,13 @@
+HUD + pickup patch
+
+Changes:
+- pickups no longer magnet/suck into the player
+- coins and hearts now stay on the ground until you walk over them
+- short pickup delay added so chest/bush loot can pop out and settle first
+- HUD rebuilt into a cleaner top bar
+- hearts, coins, area/chunk, and status now have their own slots
+- extra chunk/theme/tile noise moved to debug HUD so the main HUD is cleaner
+
+Notes:
+- I kept this patch code-safe and simple so it should be easier to build on.
+- I did not remove your debug HUD; it is still there behind the debug toggle.
