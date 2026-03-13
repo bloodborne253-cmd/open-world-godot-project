@@ -32,7 +32,7 @@ const TILE_TEXTURE_PATHS := {
 	16: "res://assets/tiles/ground/water_01.png",
 	18: "res://assets/tiles/ground/hole_01.png",
 	3: "res://assets/tiles/objects/bush_01.png",
-	5: "res://assets/tiles/objects/pot_01.png",
+	5: "res://assets/tiles/objects/pot_big_9.png",
 }
 
 const TILE_TEXTURE_NAMES := {
@@ -73,6 +73,9 @@ const CHEST_SHEET_PATH := "res://assets/tiles/objects/chest.png"
 const CHEST_CELL_SIZE := Vector2i(36, 25)
 
 
+func _get_pot_sheet_texture(tile_id: int) -> Texture2D:
+	return null
+
 func _get_chest_sheet_texture(tile_id: int) -> Texture2D:
 	if tile_id != 10 and tile_id != 11:
 		return null
@@ -90,7 +93,9 @@ func _get_tile_texture(tile_id: int) -> Texture2D:
 	if _tile_texture_cache.has(tile_id):
 		return _tile_texture_cache[tile_id] as Texture2D
 
-	var tex: Texture2D = _get_chest_sheet_texture(tile_id)
+	var tex: Texture2D = _get_pot_sheet_texture(tile_id)
+	if tex == null:
+		tex = _get_chest_sheet_texture(tile_id)
 	if tex == null:
 		for path in _get_tile_texture_candidates(tile_id):
 			if ResourceLoader.exists(path):
@@ -130,7 +135,15 @@ func _get_tile_texture_candidates(tile_id: int) -> Array[String]:
 func _draw_tile_visual(px: float, py: float, ts: int, tile_id: int, modulate: Color = Color.WHITE) -> bool:
 	var tex: Texture2D = _get_tile_texture(tile_id)
 	if tex != null:
-		draw_texture_rect(tex, Rect2(px, py, ts, ts), false, modulate)
+		if tile_id == 5:
+			var pot_scale: float = 1.18
+			var draw_w: float = ts * pot_scale
+			var draw_h: float = ts * pot_scale
+			var draw_x: float = px - (draw_w - ts) * 0.5
+			var draw_y: float = py - (draw_h - ts) + 2.0
+			draw_texture_rect(tex, Rect2(draw_x, draw_y, draw_w, draw_h), false, modulate)
+		else:
+			draw_texture_rect(tex, Rect2(px, py, ts, ts), false, modulate)
 		return true
 	return false
 

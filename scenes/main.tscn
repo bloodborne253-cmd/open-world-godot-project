@@ -5,10 +5,23 @@
 [ext_resource type="Script" uid="uid://worldviewgd" path="res://scripts/world_view.gd" id="3_world"]
 [ext_resource type="Script" uid="uid://cxsjrxkyjdxwx" path="res://scripts/build_panel.gd" id="4_buildui"]
 
-[sub_resource type="LabelSettings" id="LabelSettings_small"]
-font_size = 18
-outline_size = 4
-outline_color = Color(0.12, 0.11, 0.08, 1)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
+content_margin_left = 10.0
+content_margin_top = 6.0
+content_margin_right = 10.0
+content_margin_bottom = 6.0
+bg_color = Color(0.06, 0.08, 0.11, 0.84)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.94, 0.81, 0.36, 0.95)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.35)
+shadow_size = 4
 
 [sub_resource type="LabelSettings" id="LabelSettings_hud_hearts"]
 font_size = 20
@@ -39,23 +52,10 @@ corner_radius_top_right = 10
 corner_radius_bottom_right = 10
 corner_radius_bottom_left = 10
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud"]
-content_margin_left = 10.0
-content_margin_top = 6.0
-content_margin_right = 10.0
-content_margin_bottom = 6.0
-bg_color = Color(0.06, 0.08, 0.11, 0.84)
-border_width_left = 2
-border_width_top = 2
-border_width_right = 2
-border_width_bottom = 2
-border_color = Color(0.94, 0.81, 0.36, 0.95)
-corner_radius_top_left = 12
-corner_radius_top_right = 12
-corner_radius_bottom_right = 12
-corner_radius_bottom_left = 12
-shadow_color = Color(0, 0, 0, 0.35)
-shadow_size = 4
+[sub_resource type="LabelSettings" id="LabelSettings_small"]
+font_size = 18
+outline_size = 4
+outline_color = Color(0.12, 0.11, 0.08, 1)
 
 [node name="Main" type="Node2D" unique_id=155791771]
 script = ExtResource("1_main")
@@ -69,18 +69,19 @@ script = ExtResource("3_world")
 
 [node name="ChestInstances" type="Node2D" parent="." unique_id=777777701]
 
-[node name="PickupInstances" type="Node2D" parent="."]
+[node name="PickupInstances" type="Node2D" parent="." unique_id=902080694]
 
 [node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=769981837]
 
-[node name="HUDPanel" type="Panel" parent="CanvasLayer"]
+[node name="HUDPanel" type="Panel" parent="CanvasLayer" unique_id=2142655101]
 offset_left = 12.0
 offset_top = 10.0
 offset_right = 772.0
 offset_bottom = 64.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_hud")
 
-[node name="HeartsLabel" type="Label" parent="CanvasLayer/HUDPanel"]
+[node name="HeartsLabel" type="Label" parent="CanvasLayer/HUDPanel" unique_id=1917814958]
+modulate = Color(1, 0.9, 0.95, 1)
 layout_mode = 0
 offset_left = 14.0
 offset_top = 8.0
@@ -88,9 +89,9 @@ offset_right = 220.0
 offset_bottom = 42.0
 text = "♥♥♥♥♥"
 label_settings = SubResource("LabelSettings_hud_hearts")
-modulate = Color(1, 0.9, 0.95, 1)
 
-[node name="CoinsLabel" type="Label" parent="CanvasLayer/HUDPanel"]
+[node name="CoinsLabel" type="Label" parent="CanvasLayer/HUDPanel" unique_id=876473694]
+modulate = Color(1, 0.92, 0.58, 1)
 layout_mode = 0
 offset_left = 228.0
 offset_top = 10.0
@@ -98,9 +99,9 @@ offset_right = 360.0
 offset_bottom = 42.0
 text = "◉ 0"
 label_settings = SubResource("LabelSettings_hud_text")
-modulate = Color(1, 0.92, 0.58, 1)
 
-[node name="AreaLabel" type="Label" parent="CanvasLayer/HUDPanel"]
+[node name="AreaLabel" type="Label" parent="CanvasLayer/HUDPanel" unique_id=2069031008]
+modulate = Color(0.82, 0.9, 1, 1)
 layout_mode = 0
 offset_left = 362.0
 offset_top = 10.0
@@ -108,17 +109,16 @@ offset_right = 540.0
 offset_bottom = 42.0
 text = "Field (0, 0)"
 label_settings = SubResource("LabelSettings_hud_text")
-modulate = Color(0.82, 0.9, 1, 1)
 
-[node name="StatusLabel" type="Label" parent="CanvasLayer/HUDPanel"]
+[node name="StatusLabel" type="Label" parent="CanvasLayer/HUDPanel" unique_id=977995377]
+modulate = Color(0.95, 0.95, 0.95, 1)
 layout_mode = 0
 offset_left = 548.0
 offset_top = 10.0
 offset_right = 748.0
 offset_bottom = 42.0
-horizontal_alignment = 2
 label_settings = SubResource("LabelSettings_hud_text")
-modulate = Color(0.95, 0.95, 0.95, 1)
+horizontal_alignment = 2
 
 [node name="DebugHUD" type="Label" parent="CanvasLayer" unique_id=1640321375]
 visible = false
@@ -227,4 +227,3 @@ offset_right = 470.0
 offset_bottom = 234.0
 text = "Build controls"
 label_settings = SubResource("LabelSettings_debug")
-

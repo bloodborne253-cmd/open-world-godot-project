@@ -102,6 +102,7 @@ var _joy_debug_lines: Array[String] = []
 var chest_instances: Dictionary = {}
 
 const CHEST_SCENE: PackedScene = preload("res://assets/objects/chest.tscn")
+const POT_BREAK_FX_SCENE: PackedScene = preload("res://assets/objects/pot_break_fx.tscn")
 const PICKUP_SCENE: PackedScene = preload("res://scenes/pickup.tscn")
 
 func _ready() -> void:
@@ -249,7 +250,11 @@ func _handle_actions() -> void:
 	if player.attack_t > 0.0 and not player.attack_applied:
 		if chunk_manager.sword_hit_world(player.sword_rect()):
 			for cut_result in chunk_manager.consume_last_cut_results():
-				_spawn_random_world_drop(cut_result.get("world_pos", player_world_pos), int(cut_result.get("tile_id", 0)))
+				var cut_world_pos: Vector2 = cut_result.get("world_pos", player_world_pos)
+				var cut_tile_id: int = int(cut_result.get("tile_id", 0))
+				if cut_tile_id == chunk_manager.TILE_POT:
+					_spawn_pot_break_fx(cut_world_pos)
+				_spawn_random_world_drop(cut_world_pos, cut_tile_id)
 			show_status("Bush/pot cut")
 			world.queue_redraw()
 		player.attack_applied = true
@@ -547,6 +552,11 @@ func _spawn_pickup(kind: String, world_pos: Vector2, amount: int = 1, drift: Vec
 	if pickup.has_method("setup"):
 		pickup.setup(kind, amount, drift)
 	pickup.set("main_ref", self)
+
+func _spawn_pot_break_fx(world_pos: Vector2) -> void:
+	var fx: Node2D = POT_BREAK_FX_SCENE.instantiate()
+	add_child(fx)
+	fx.global_position = world_pos
 
 func _sync_chest_instances() -> void:
 	var desired: Dictionary = {}
